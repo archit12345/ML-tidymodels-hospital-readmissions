@@ -1,0 +1,663 @@
+---
+title: "Predicting Risk of Hospital Readmission Within 30 Days of Discharge Using Machine Learning Models With Tidymodels in R"
+author: "Archit Nangavaram"
+date: "2025-06-17"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load packages
+library(tidyverse)
+library(ggthemes)
+library(tidymodels)
+library(themis)
+library(table1)
+library(ggpubr)
+library(broom)
+library(ggfortify)
+library(GGally)
+library(PerformanceAnalytics)
+library(car)
+library(caret)
+library(skimr)
+library(discrim)
+library(glmnet)
+library(kknn)
+library(naivebayes)
+library(kernlab)
+library(xgboost)
+library(doParallel)
+library(gridExtra)
+library(ggplot2)
+library(kableExtra)
+library(vip)
+
+```
+
+In this project, I will be following a guided lesson to learn more about using the tidymodels package in R for machine learning. 
+
+The overarching aim of this project is to build, tune, compare and evaluate multiple machine learning models to examine the effect of patient demographic factors and clinical records (HbA1c level, number of diagnosis, length of stay) on the likelihood of readmission. 
+
+Hospital readmissions within 30 days cost the U.S. healthcare system over $17 billion on average annually. This is why many insurers do not cover readmissions for the same problem if a patient leaves against medical advice. 
+
+Hospitals have limited resources for post-discharge care (e.g., case managers, follow-up nurses). Therefore, they often prioritize identifying patients with low risk of readmission. By accurately identifying low-risk patients, hospitals can exclude them from intensive intervention, focusing efforts and costs on those who are more likely to be readmitted.This reduces unnecessary spending on patients unlikely to return. 
+
+Let's learn how we can approach this problem using machine learning methods using the tidymodels package in R. 
+
+
+##### Project Question:
+
+Can patient demographics, HbA1c and other clinical records of diabetic inpatients predict risk of readmission?
+
+
+### Load the Dataset and Pre-Processing
+To begin, I will read in the data set we will be working with. 
+
+The data set for this project is an excerpt of the dataset provided during the Visual Automated Disease Analytics (VADA) summer school training, 2018. The VADA Summer School training dataset was derived from the Health Facts database (Cerner Corporation, Kansas City, MO, USA). This database contains clinical records from 130 participating hospitals across the USA. These clinical records contain information pertaining to 69,984 observations and 27 variables including patient encounter data, demographics, HbA1c levels, diagnostic testing and treatments, and patient outcomes. Data used were from 1999–2008 from a cohort of 130 hospitals, deidentified and trimmed to include only inpatient visits.
+
+*Strack B, DeShazo JP, Gennings C, et al. Impact of HbA1c measurement on hospital readmission rates: analysis of 70,000 clinical database patient records. Biomed Res Int. 2014;2014:781670. doi:10.1155/2014/781670*
+
+
+```{r}
+# Load the dataset
+hospital <- read_csv("readmission_data.csv")
+kable(head(hospital))
+```
+
+Now we must do some pre-processing to make the data more workable. First of all, character variables cannot be used in our ML models, so we need to convert all character variables in our dataframe to factors. 
+
+```{r}
+# Pre-processing 
+# Convert character variables to factors
+hospital_new <- hospital %>% 
+  mutate_if(is.character, as.factor) %>%
+  mutate(readmitted01 = case_when(
+    readmitted == "No" ~ 0, 
+    readmitted == "Yes" ~ 1,
+  )) %>%
+
+# Relocate target variable to last variable 
+relocate(readmitted, .after = readmitted01)
+
+
+# Head of the modified dataset that we will use to build our machine learning models
+kable(head(hospital_new))
+
+```
+
+We can use the skim() function from the skimr package in R to get some more descriptive information about the variables in our data set. 
+
+```{r}
+
+# Get an overview of the data 
+skim(hospital_new)
+
+```
+
+Now, that we have our data prepped, we can begin to explore some of the relationships in the data visually. 
+
+
+### Exploratory Visualization of Categorical Variables
+
+In this section, I will be visualizing the categorical variables in the dataset to look for any trends or patterns that might be helpful later when developing our machine learning models.
+
+```{r fig.align= 'center', fig.width = 8, fig.height = 8}
+p1 <- ggplot(hospital_new, aes(x = readmitted, fill = readmitted)) + 
+  theme_minimal() + 
+  labs(title = "Patient Readmittance", 
+       x = "Readmitted") + 
+  theme(axis.title.y = element_blank(), 
+        legend.position = "none") + 
+  scale_fill_canva() + 
+  geom_bar() 
+
+p2 <- ggplot(hospital_new, aes(x = HbA1c, fill = readmitted)) + 
+  geom_bar() + 
+  labs(fill = "Readmitted") + 
+  theme_minimal() +
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva()
+
+
+p3 <- ggplot(hospital_new, aes(x = num_medications, fill = readmitted)) + 
+  geom_bar() + 
+  labs(x = "Number of Medications", 
+       fill = "Readmitted") + 
+  theme_minimal() +
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva()
+
+p4 <- ggplot(hospital_new, aes(x = race, fill = race)) + 
+  geom_bar() + 
+  labs(x = "Race") + 
+  theme_minimal() +
+  theme(axis.title.y = element_blank(), 
+        legend.position = "none") + 
+  scale_fill_canva()
+
+
+p5 <- ggplot(hospital_new, aes(x = sex, fill = sex)) + 
+  geom_bar() + 
+  labs(x = "Sex") + 
+  theme_minimal() +
+  theme(axis.title.y = element_blank(), 
+        legend.position = "none") + 
+  scale_fill_canva()
+
+
+p6 <- ggplot(hospital_new, aes(x = age, fill = readmitted)) + 
+  geom_bar() + 
+  labs(x = "Age", 
+       fill = "Readmitted") +
+  theme_minimal() +
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva() 
+
+
+p7 <- ggplot(hospital_new, aes(x = diabetesMed, fill = readmitted)) + 
+  geom_bar() + 
+  labs(x = "On Diabetes Meds", 
+       fill = "Readmitted") + 
+  theme_minimal() +
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva() 
+
+# Arranging plots into a grid
+grid.arrange(p1,p2,p3,p7,p4,p5,p6,  ncol = 2)
+
+
+```
+We can see from the figure above that patients with higher HbA1c levels and that are on medication for diabetes seem to be more likely to be readmitted to the hospital within 30 days. Patients older than 60 years also appear to be more likely to be readmitted. 
+
+Here is a table with some more descriptive statistics of the data set
+
+```{r fig.align = 'center'}
+
+# Creating a summary table
+table1(~ . | readmitted, data = hospital_new)
+
+```
+
+### Exploratory Visualization of Numeric Variables
+
+Next, I will be visualizing some more of the numeric variables in the data set.
+
+```{r fig.align = 'center', fig.width = 9, fig.height = 8}
+
+# Number of diagnosis by readmission status
+bp1 <- 
+  ggplot(hospital_new, aes(x = readmitted, y = num_diagnosis, fill = readmitted)) + 
+  geom_boxplot() + 
+  theme_minimal() + 
+  labs(title = "Number of Diagnosis vs Readmittance Status", 
+       x = "Readmitted", 
+       y = "Number of Diagnosis") + 
+  theme(legend.position = "none") + 
+  scale_fill_canva() 
+
+b1 <- 
+  ggplot(hospital_new, aes(x = num_diagnosis, fill = readmitted)) + 
+  geom_bar() + 
+  theme_minimal() + 
+  labs(x = "Number of Diagnosis", 
+       fill = "Readmitted") + 
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva() 
+
+
+# Number of days in the hospital by readmission status 
+bp2 <- 
+  ggplot(hospital_new, aes(x = readmitted, y = hospital_stay, fill = readmitted)) + 
+  geom_boxplot() + 
+  theme_minimal() + 
+  labs(title = "Length of Hospital Stay vs Readmission Status", 
+       x = "Readmitted", 
+       y = "Number of Days in Hospital") + 
+  theme(legend.position = "none") + 
+  scale_fill_canva() 
+
+b2 <- 
+  ggplot(hospital_new, aes(x = hospital_stay, fill = readmitted)) + 
+  geom_bar() + 
+  theme_minimal() + 
+  labs(x = "Number of Days in Hospital", 
+       fill = "Readmitted") +
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva() 
+
+
+b3 <- 
+  ggplot(hospital_new, aes(x = patient_visits, fill = readmitted)) + 
+  geom_bar(position = "fill") + 
+  theme_minimal() + 
+  xlim(0,23) + 
+  labs(x = "Number of Patient Visits", 
+       fill = "Readmitted") +
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva() 
+
+
+grid.arrange(bp1,b1,bp2,b2,b3, ncol = 2)
+
+
+```
+We can see from the figure above that most patients in the hospital seemed to have 9 concurrent diagnoses. We also see that patients who were readmitted had greater length of stays. We also see that as the number of patients prior visits increases, they seem to be more likely to be readmited. 
+
+Now, we can move into building our machine models. First, we must check for any issues with our data. 
+
+### Checking For Data Issues -- Multicolinearity
+
+Before we begin creating our machine learning models, we must first check our data for multicolinearity. Multicolinearity is an issue that can lead to inaccurate model predictions and inflated standard errors. Multicolinearity occurs when two or more features in our model are highly correlated with one another. It makes it difficult to determine the individual effect each feature has on the target variable. We can check for multicolinearity by checking our correlation coefficients between our features and calculating the variance inflation factor (VIF). A VIF of 1 = variables are not correlated. VIF of 1-5 = variables are moderately correlated. VIF above 5 = variables are highly correlated.
+
+```{r}
+# Generating a correlation matrix of the numeric variables in our dataset. 
+hospital_new %>% 
+  select_if(is.numeric) %>% 
+  ggcorr(label = TRUE)
+
+
+# Generating more in-depth correlation charts 
+hospital_new %>% 
+  select_if(is.numeric) %>% 
+  chart.Correlation()
+
+
+# Calculating the variance inflation factor (VIF)
+vif(lm(readmitted01 ~ hospital_stay + patient_visits + num_diagnosis + num_medications, data = hospital_new)) %>%
+  tidy()
+
+```
+
+As we can see from the above correlation matrix and the results of our VIF calculations, none of the variables are highly correlated with one another. This means that multicolinearity is not a concern for our model development. If one of more features were correlated, we would need to determine which feature would make the most sense to drop from our model.
+
+Now, we are ready to begin building our machine learning models.
+
+### Splitting the Data into Training and Testing Sets
+Here we will be splitting the data into training and testing sets at an 8:2 ratio. We will also create a cross validation object called hospital_fold using the vfold_cv() function. This is important for tuning our models' hyperparameters later. 
+```{r}
+# Setting the seed for reproducibility
+set.seed(2024)
+
+# Splitting the data into training and testing sets
+hospital_split <- initial_split(hospital_new, prop = 0.8, strata = readmitted)
+hospital_train <- training(hospital_split)
+hospital_test <- testing(hospital_split)
+
+# Checking the number of features in our testing (analysis) and testing (assesment) sets
+kable(dim(hospital_split))
+
+# Creating a cross validated object for our training data. This will be used for our hyperparameter tuning later 
+hospital_fold <- vfold_cv(hospital_train)
+```
+
+### Creating a Tidymodels Recipe
+
+The next step in creating a machine learning model in Tidymodels is to create our recipe. A recipe is a systematic way to preprocess our data before building our model that is unique to the Tidymodels package. In our recipe, we can normalize, scale, encode, impute missing values, and much more.
+
+Below is the pre-proccessed version of our data set. It is incredible the number of pre-processing steps the recipes package can achieve with such few lines of code. 
+
+```{r}
+# Create a recipe 
+  hospital_recipe <- 
+    # Specify the formula 
+      recipe(formula = readmitted ~ ., data = hospital_train) %>%
+          # Specify any pre-processing steps 
+              step_normalize(all_numeric_predictors()) %>%
+              step_novel(all_nominal_predictors()) %>% # prevents errors from unseen                                                           factor levels
+              step_dummy(all_nominal_predictors(), one_hot = TRUE) %>% 
+              # one-hot-encodes all nominal features
+              step_zv(all_predictors())
+
+# If you want to view the pre-processedd data you can, but it's not necessary. Tidymodels handles all pre-processing automatically behind the scenes. 
+
+# This is how you view the pre-processed data. 
+hospital_preprocessed <- hospital_recipe %>%
+  prep(hospital_train) %>% 
+  juice()
+
+kable(head(hospital_preprocessed))
+
+```
+
+Now that we have created a recipe that defines our formula and pre-processed our data, we can move on to specify the machine learning models that we want to use.
+
+### Specify the Machine Learning Models
+
+After creating our recipe, we can specify the machine learning models we want to use on our data. The parsnip package that is part of tidymodels offers a unified interface for accessing the huge variety of machine learning models that are available in R. This way you only need to learn one way of specifying a model.
+
+There are many packages that provide machine learning models in R, and they all have slightly different syntax. So instead of learning all of that, you can use parsnip. This way you only need to specify the type of model you want to use, the engine which is the package in R the model comes from, and, lastly, the type of prediction--classification or regression.
+
+You can find a list of all available models in parsnip. Then you can find more info on each model by entering ?model_name (e.g. ?nearest_neighbor) into the console. This will give you documentation on the possible engines you can use, as well as the hyperparameters available to tune for each of the models, depending on the engine.
+
+This makes it extremely simple to test out a bunch of models, have R tune the hyperparameters for you to find the best fit, and compare which model is the most accurate.
+
+Let's start by specifying various machine models and looking through the R documentation on each model in the parsnip package to find the engines and hyperparameters we can mess with.
+
+```{r}
+# Decision Tree 
+decision_tree_model <- 
+  decision_tree(tree_depth = tune(), min_n = tune(), cost_complexity = tune()) %>% 
+  set_engine("rpart") %>%
+  set_mode("classification")
+
+
+# Logistic Classifier (with a glmnet engine) 
+logit_regression_model <- 
+  logistic_reg(penalty = tune(), mixture = tune()) %>% 
+  set_engine("glmnet") %>%
+  set_mode("classification")
+
+
+# Naive Bayes 
+naive_bayes_model <- 
+  naive_Bayes(smoothness = tune(), Laplace = tune()) %>% 
+  set_engine("naivebayes") %>%
+  set_mode("classification")
+
+
+# K-Nearest Neighbors 
+k_nearest_model <- 
+  nearest_neighbor(neighbors = tune(), weight_func = tune(), dist_power = tune()) %>% 
+  set_engine("kknn") %>%
+  set_mode("classification")
+
+# Random Forest 
+random_forest_model <- 
+  rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>% 
+  set_engine("ranger") %>%
+  set_mode("classification")
+
+
+# Linear Support Vector Machine (SVM) 
+svm_model <- 
+  svm_linear(cost = tune(), margin = tune()) %>% 
+  set_engine("kernlab") %>%
+  set_mode("classification")
+
+
+
+# Radial Basis Function SVM
+rbf_svm_model <- 
+  svm_rbf(cost = tune(), rbf_sigma = tune(), margin = tune()) %>%
+  set_engine("kernlab") %>%
+  set_mode("classification")
+
+
+
+# XGBoost
+xgboost_model <- 
+  boost_tree(trees = tune(), mtry = tune(), learn_rate = tune()) %>%
+  set_engine("xgboost") %>%
+  set_mode("classification")
+
+```
+
+Now we have created a recipe with our formula and pre-processing steps, as well as defined a variety of models with tunable hyperparamters that we can pass into our workflow.
+
+### Create a Workflow Set for Multiple Models
+
+A workflow set can be used when you want to try out multiple models to find which best suits your data.
+
+```{r}
+# Creating a workflow set (for multiple models)
+hospital_workflow <- workflow_set( 
+  preproc = list(rec = hospital_recipe), 
+  models = list(decision_tree = decision_tree_model, 
+                logistic_reg = logit_regression_model, 
+                naive_Bayes = naive_bayes_model, 
+                nearest_neighbor = k_nearest_model, 
+                rand_forest = random_forest_model, 
+                svm_liner = svm_model, 
+                svm_rbf = rbf_svm_model, 
+                boost_tree = xgboost_model)
+  )
+  
+```
+
+
+### Tuning the Hyperparameters For Each Model
+In this section, I am doing something called a grid search. It's systematically goes through each model tuning each of the hyperparameters to find which set of parameters allows the model to perform the best. This is a computationally expensive process. 
+
+Since we created 8 models with multiple tune-able parameters in each one, doing this grid search takes around 2 hours to run and complete. 
+```{r}
+# Create a control grid 
+grid_ctrl <- control_grid(
+  verbose = TRUE, 
+  save_pred = TRUE, 
+  parallel_over = "everything", 
+  save_workflow = TRUE
+)
+
+# Define the metrics
+hospital_metrics <- 
+  metric_set(accuracy, roc_auc, f_meas, spec, sens)
+
+# Create parallel training
+registerDoParallel()
+
+
+# Setting the start time 
+strt.time <- Sys.time()
+
+## Tune the model 
+#grid_results <- hospital_workflow %>%
+  #workflow_map(
+    #verbose = TRUE, 
+    #seed = 2024, # for reproducibility
+    #rsamples = hospital_fold, # use our cross validation split object
+    #grid = 7, # number of parameters to try
+    #control = grid_ctrl, # add out control grid
+    #metrics = hospital_metrics # object with metrics to collect
+  #)
+
+## Tracking the duration of loop 
+Sys.time() ~ strt.time
+
+# Stop parallel computing 
+stopImplicitCluster() 
+
+## Load the grid results 
+grid_results <- read_rds("readmit_grid_results.rds")
+```
+
+After, saving the results of the grid search to an object called grid_results, we can evaluate which model with which set of hyperparameters works best. 
+
+### Evaluating the Results of the Various Models With Tuned Hyperparameters
+Next, we can evaluate the results from our grid search to see which models perform best according to our pre-defined metrics. We can also easily evaluate our models visually by using the autoplot() function. 
+```{r}
+# Collecting the metrics and creating a table from grid_results
+kable(grid_results %>% 
+  rank_results(select_best = TRUE) %>% 
+  mutate(across(c("mean", "std_err"), \(x) round(x, 3))) %>%
+  select(wflow_id, .metric, mean) %>% 
+  pivot_wider(names_from = .metric, values_from = mean) %>%
+  arrange(-f_meas))
+  
+  
+  
+# Plot the best model using autoplot() 
+grid_results %>%
+  autoplot(select_best = TRUE)
+
+```
+
+
+
+We can see here that the decision tree model is the most accurate. The logistic regression has the highest sensitivity. SVM_linear, logistic regression, and naive bayes have the highest f-measure score. The f-measure, or f1, score considers both false positives and false negatives. This is more important than accuracy, at times (like in medical scenarios), when false positives or negatives can be costly or potentially life-threatening. Therefore, we will want our final model to be one of the three aforementioned models. 
+
+Because the naive bayes model has a very low specificity score, we will not use it. *Logistic regression seems to have the best blend of accuracy, sensitivity, and f-measure score. This is the final model we will use.* 
+
+To be perfectly candid, I have much more to learn about model evaluation metrics.It seems to be a whole science on its own. But essentially, your model needs to perform reasonably well in the metrics that are important for its use case. Different metrics are more important for different scenarios. 
+
+
+### Selecting the Best Model 
+Here we will be pulling the best hyper-parameters for our logistic regression model. To do this we will be using the select_best() function and the finalize_workflow() function. 
+```{r}
+
+# Select the best model 
+best_results <- grid_results %>%
+  extract_workflow_set_result("rec_logistic_reg") %>%
+  select_best(metric = "f_meas")
+
+# Print the best hyper-parameters
+print(best_results)
+
+# Finalize the workflow using the hyper-parameters in the best_result object
+final_workflow <- grid_results %>%
+  extract_workflow("rec_logistic_reg") %>%
+  finalize_workflow(best_results)
+
+
+
+```
+
+
+### Evaluating the Model's Performance on the Testing Dataset 
+Now that we have found the model we want to use, as well as the optimal hyperparameters for f_measure, we can use our final model on the testing dataset. In this way we can evaluate our model's performance on unseen data. 
+
+```{r}
+
+hospital_last_fit <- final_workflow %>% 
+  last_fit(hospital_split, metrics = hospital_metrics)
+ 
+
+hospital_last_fit %>%
+  collect_metrics()
+
+
+predictions <- hospital_last_fit %>%
+  collect_predictions()
+
+
+                
+# Create a confusion matrix on the predictions datafr
+confusionMatrix(data = predictions$.pred_class, reference = predictions$readmitted)
+
+predictions %>%
+  ggplot(aes(x = readmitted, fill = .pred_class)) + 
+  theme_minimal() + 
+  labs(title = "Predictions vs Actual Classifications", 
+       x = "Actual Readmission Status", 
+       fill = "Predicted\nReadmission\nStatus") + 
+  geom_bar(position = "fill") + 
+  theme(axis.title.y = element_blank()) + 
+  scale_fill_canva()
+
+```
+We can see that the the model very accurately predicts patients that are not readmitted within 30 days. This is important, as knowing which patients are unlikely to be readmitted saves hospitals money and aids in resource allocation for higher risk patients. 
+
+If a model flags many false positives, resources are potentially wasted on low-risk patients. If the model mislabels low-risk patients as high-risk, it can lead to wasted time and resources on those unlikely to benefit.Accurately identifying low-risk patients minimizes intervention fatigue and over-treatment.
+Knowing who’s safe to discharge without extra care helps to free up beds, reduce discharge delays, and prevent readmissions driven by premature discharges
+
+That is why this model prioritizes predicting low-risk patients over predicting high-risk patients. 
+
+
+
+### Fitting the Model on the Entire Dataset & Predicting From New Data
+Now that we have evaluated the model on our testing dataset, it's time to send it out into the real world. Once you have finalized your model, it is common to train it on all of the available data (both training & testing) and then use it to make predictions on new data from the real world. 
+
+I will be creating a "new patient" by defining their race, sex, age, etc. in a tribble. Then I will make predictions about their likelihood of readmission using the final model. 
+
+```{r}
+# Define the final model
+final_model <- fit(final_workflow, hospital_new)
+
+# Creating a new, hypothetical patient information to use our model to predict their re-admittance likelihood. 
+new_patient <- tribble(~race, ~sex, ~age, ~hospital_stay, ~HbA1c,   ~diabetesMed,~admit_source,~patient_visits,~num_medications, ~num_diagnosis, ~insulin_level, "Others", "Male", "<60 years", 7, "Normal", "No","Emerg", 3, 20, 8, "Up")
+
+kable(new_patient)
+
+
+# Predict re-admittance likelihood on new_patient data. 
+
+predict(final_model, new_data = new_patient, type = "prob")
+predict(final_model, new_data = new_patient)
+
+
+```
+You can adjust the features of the new patients to extract the models prediction for a patient with those characteristic. 
+
+### Checking Variable Importance 
+Lastly, I want to take a look at the variable importance of all of the features in the model to see what is having the greatest impact on our model. We can do this easily with the vip() function. 
+
+```{r}
+# Checking variable importance
+vip(final_model)
+```
+
+We can see that the number of prior patient visits is the variable with the greatest importance. Followed by length of stay. Followed by whether or not the patient is on medication for diabetes, admit source being the emergency room, and age. 
+
+### Saving Final Model to Computer
+Now that we have a finalized model that can be used to make predictions, we can save the model to our computer. This way we can use it in things like Shiny apps to use an interactive user interface to feed the model new data and make predictions. 
+
+```{r}
+# Save the final model 
+#write_rds(final_model, "final_hospital_model.rds")
+
+```
+
+
+## Congratulations! You did it!
+We've officially used the tidymodels package in R to create many machine learning models, compare their utility, and pick the best one to make predictions on new data. This guide gives a great overview of the basics of the tidymodels framework. There is still so much more to learn like actually deploying machine learning models, and creating ensemble models. Ensemble models use multiple machine learning models at once to try to improve model performance. 
+
+
+### Additional Example of Tuning Only a Single Model
+In our project, we tuned multiple models using workflow_set() and workflow_map(). I wanted to provide an additional example of creating and tuning a single random forest model using workflow() and tune_grid(). 
+
+```{r}
+# Testing out tuning on a random forest model
+rand_forest_test <- 
+  rand_forest(mtry = tune()) %>% 
+  set_engine("ranger") %>%
+  set_mode("classification") 
+
+# Set the workflow 
+test_workflow <- workflow() %>%
+  add_recipe(hospital_recipe) %>% 
+  add_model(rand_forest_test) 
+  
+# Create grid with values to try
+rf_grid <- 
+  expand.grid(mtry = c(3,4,5,6,7)) 
+
+# Define the metrics 
+
+rf_metrics <- 
+  metric_set(accuracy, roc_auc, spec, sens, f_meas)
+
+# Tune the model
+rf_tune_results <- test_workflow %>%
+  tune_grid(resamples = hospital_fold, 
+            grid = rf_grid, 
+            metrics = rf_metrics)
+
+
+# Collect the results/metrics of the tuning 
+rf_tune_results %>% 
+  collect_metrics()
+
+
+# Now let's find the optimal hyper-parameters of the random forest model that is most accurate. 
+
+best_rf_params <- 
+  select_best(rf_tune_results, metric = "accuracy")
+
+# Printing the object best_rf_params will show us that the best value of mtry in order to achieve the highest accuracy is 3. 
+best_rf_params
+
+
+# Now we will finalize the workflow 
+final_rf_workflow <- 
+  finalize_workflow(test_workflow, best_rf_params)
+
+# We can print our workflow to get an overview of what steps the program is taking to build our random forest model
+final_rf_workflow
+
+```
+
+
+*Link to Guided Project on Coursera:* https://www.coursera.org/projects/tidymodels-in-r-building-tidy-machine-learning-models
