@@ -10,6 +10,7 @@ Link to project on RPubs: https://rpubs.com/architn01/1323685
   - 'README.md': this...
   - 'readmissions.csv': Original dataset
   - 'hospitalMLproject.Rmd': R markdown raw code for the project
+  - 'final_hospital_model.rds': Final logistic classifier model rds file
 
 ## Dataset - 'readmissions.csv'
 
