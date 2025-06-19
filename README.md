@@ -63,3 +63,13 @@ Strack B, DeShazo JP, Gennings C, et al. Impact of HbA1c measurement on hospital
   -  Taking diabetes medication
   -  Admit source emergency room
   -  Age
+
+## Author
+
+**Archit Nangavaram**
+
+Senior Undergraduate in Psychology minoring in Addiction Studies and Expressive Arts Therapy 
+
+Email: archit.nangavaram01@utrgv.edu 
+
+LinkedIn: https://www.linkedin.com/in/archit-nangavaram-10b899293/
