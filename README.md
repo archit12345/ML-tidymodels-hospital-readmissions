@@ -9,11 +9,11 @@ This project builds and evaluates machine learning models to predict whether a p
 
 ## Table of Contents
   - 'README.md': this...
-  - 'readmissions_data.csv': Original dataset
+  - 'readmission_data.csv': Original dataset
   - 'hospitalMLproject.Rmd': R markdown raw code for the project
   - 'final_hospital_model.rds': Final logistic classifier model rds file
 
-## Dataset - 'readmissions.csv'
+## Dataset - 'readmission_data.csv'
 
 - **Source:** The data set for this project is an excerpt of the dataset provided during the Visual Automated Disease Analytics (VADA) summer school training, 2018. The VADA Summer School training dataset was derived from the Health Facts database (Cerner Corporation, Kansas City, MO, USA). This database contains clinical records from 130 participating hospitals across the USA. These clinical records contain information pertaining to 69,984 observations and 27 variables including patient encounter data, demographics, HbA1c levels, diagnostic testing and treatments, and patient outcomes. Data used were from 1999–2008 from a cohort of 130 hospitals, deidentified and trimmed to include only inpatient visits.
 
