@@ -20,7 +20,7 @@ Strack B, DeShazo JP, Gennings C, et al. Impact of HbA1c measurement on hospital
 
 - **Target Variable:** `readmitted` (binary: 1 = Yes, 0 = No)
 
-## Methods
+## Skills Acquired
 
 - **Preprocessing:**
   - Normalized numeric features
