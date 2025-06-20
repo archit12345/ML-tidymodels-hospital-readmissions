@@ -4,8 +4,8 @@
 
 This project builds and evaluates machine learning models to predict whether a patient will be readmitted to the hospital within 30 days. Using structured patient data and modern ML tools in R, the project aims to inform hospital strategies for identifying patients at low-risk and high-risk of readmission. 
 
-Link to project on RPubs: https://rpubs.com/architn01/1323685
-Link to guided project on Coursera: https://www.coursera.org/projects/tidymodels-in-r-building-tidy-machine-learning-models
+- Link to project on RPubs: https://rpubs.com/architn01/1323685
+- Link to guided project on Coursera: https://www.coursera.org/projects/tidymodels-in-r-building-tidy-machine-learning-models
 
 ## Table of Contents
   - 'README.md': this...
