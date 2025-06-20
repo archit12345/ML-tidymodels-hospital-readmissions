@@ -9,7 +9,7 @@ This project builds and evaluates machine learning models to predict whether a p
 
 ## Table of Contents
   - 'README.md': this...
-  - 'readmissions.csv': Original dataset
+  - 'readmissions_data.csv': Original dataset
   - 'hospitalMLproject.Rmd': R markdown raw code for the project
   - 'final_hospital_model.rds': Final logistic classifier model rds file
 
